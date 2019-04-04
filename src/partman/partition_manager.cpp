@@ -76,6 +76,12 @@ PartitionList ReadPartitions(PedDisk* lp_disk) {
       continue;
     }
 
+    partition->start_sector = lp_partition->geom.start;
+    partition->end_sector = lp_partition->geom.end;
+
+    partition->partition_number = lp_partition->num;
+    partition->path = GetPartitionPath(lp_partition);
+
     // Get partition flags when it is active.
     if (ped_partition_is_active(lp_partition)) {
       partition->flags = GetPartitionFlags(lp_partition);
@@ -90,13 +96,23 @@ PartitionList ReadPartitions(PedDisk* lp_disk) {
         partition->fs = FsType::EFI;
       }
     } else {
-      partition->fs = FsType::Unknown;
-    }
-    partition->start_sector = lp_partition->geom.start;
-    partition->end_sector = lp_partition->geom.end;
+      // 因为libparted无法获取到所有的文件系统类型，通过调用fdisk来获取id和type.
+      QString output;
+      SpawnCmd("fdisk", QStringList() << "-l", output);
+      QTextStream stream(&output);
+      QString line;
+      while(stream.readLineInto(&line)){
+        if (line.contains(partition->path)) {
+          partition->fs = GetFsTypeByName(line.simplified().split(" ").last());
+          line.clear();
+          break;
+        }
+      }
 
-    partition->partition_number = lp_partition->num;
-    partition->path = GetPartitionPath(lp_partition);
+      if (!line.isEmpty()) {
+        partition->fs = FsType::Unknown;
+      }
+    }
 
     // Avoid reading additional filesystem information if there is no path.
     if (!partition->path.isEmpty() &&
